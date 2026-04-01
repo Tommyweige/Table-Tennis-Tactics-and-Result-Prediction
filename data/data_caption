@@ -1,0 +1,123 @@
+
+# 桌球比賽小分（Rally）結構化資料集
+
+本資料集以「小分（Rally）」為單位，完整記錄了桌球比賽中每一次擊球的狀態、技術動作與比賽脈絡資訊。
+
+## 1. 檔案說明
+
+| 檔案名稱 | 說明 |
+| :--- | :--- |
+| **train.csv** | 訓練資料集，包含完整標註（含預測目標）。 |
+| **test.csv** | 測試資料集，不包含預測目標。 |
+| **sample_submission.csv** | 提交結果格式範例。 |
+
+---
+
+## 2. 資料結構與欄位說明
+
+每一筆資料代表一場比賽中某一小分內的 **單次揮拍行為**，依時間順序排列。
+> **注意：** `strikeId` 為本次競賽之**預測目標**。
+
+| 欄位名稱 (Features) | 說明 | Definition |
+| :--- | :--- | :--- |
+| **rally_uid** | 小分的唯一識別碼 | Unique ID for each rally |
+| **sex** | 比賽性別（男:1 / 女:2） | Gender category of the match |
+| **match** | 比賽的唯一識別碼 | Unique ID of the match |
+| **numberGame** | 小局數（第幾局） | Game (set) number within the match |
+| **rally_id** | 小局內的小分編號 | Rally ID within the game |
+| **strikeNumber** | 小分內的揮拍次序 | Stroke number within the rally |
+| **scoreSelf** | 主視角選手的得分 | Points won by the main-view player |
+| **scoreOther** | 對側選手的得分 | Points won by the opponent player |
+| **serverGetPoint** | 發球者是否得分（1=是, 0=否） | Whether the server won the point |
+| **gamePlayerId** | 主視角選手的 ID | ID of the main-view player |
+| **gamePlayerOtherId** | 對側視角選手的 ID | ID of the opponent player |
+| **strikeId** | **揮拍狀態或動作類型 (目標值)** | **Stroke action type or state identifier** |
+| **handId** | 正手或反手揮拍 | Forehand or backhand stroke indicator |
+| **strengthId** | 擊球力道 | Stroke strength level |
+| **spinId** | 球的旋轉方式 | Type of spin applied to the ball |
+| **pointId** | 球的落點位置 | Landing position of the ball on the table |
+| **actionId** | 擊球方式 | Stroke or action type |
+| **positionId** | 球員站位區域 | Player’s court position |
+
+---
+
+## 3. 分類定義表 (Category Mappings)
+
+### strikeId (預測目標)
+| ID | 說明 | Definition |
+| :--- | :--- | :--- |
+| 1 | 發球 | serving |
+| 2 | 接發球 | reserve |
+| 4 | 第三板之後 | rally |
+| 8 | 無 (未錄影) | zero |
+| 16 | 暫停 | stop |
+
+### handId (正反手)
+| ID | 說明 | Definition |
+| :--- | :--- | :--- |
+| 0 | 無 / 無法判斷 | zero |
+| 1 | 正拍 | forehand |
+| 2 | 反拍 | backhand |
+
+### strengthId (擊球力道)
+| ID | 說明 | Definition |
+| :--- | :--- | :--- |
+| 0 | 無 / 無法判斷 | zero |
+| 1 | 強 | strong |
+| 2 | 中 | medium |
+| 3 | 弱 | slow |
+
+### spinId (旋轉方式)
+| ID | 說明 | Definition |
+| :--- | :--- | :--- |
+| 0 | 無 / 無法判斷 | zero |
+| 1 | 上旋 | top spin |
+| 2 | 下旋 | back spin |
+| 3 | 不旋 | no spin |
+| 4 | 側上旋 | side top spin |
+| 5 | 側下旋 | side back spin |
+
+### pointId (落點位置)
+| ID | 說明 | Definition |
+| :--- | :--- | :--- |
+| 0 | 無 / 出界 / 掛網 | zero |
+| 1 | 正手位置短球 | forehand position near net |
+| 2 | 中間短球 | middle position near net |
+| 3 | 反手位置短球 | backhand position near net |
+| 4 | 正手位置半出台球 | forehand position half-long |
+| 5 | 中路半出台球 | middle position half-long |
+| 6 | 反手位置半出台球 | backhand position half-long |
+| 7 | 正手位置長球 | forehand position long |
+| 8 | 中間長球 | middle position long |
+| 9 | 反手位置長球 | backhand position long |
+
+### actionId (擊球技術類型)
+| ID | 說明 | Definition | Action Type |
+| :--- | :--- | :--- | :--- |
+| 0 | 無 / 其他 | zero | Zero |
+| 1 | 拉球 | drive | Attack |
+| 2 | 反拉 | counter drive | Attack |
+| 3 | 殺球 | smash | Attack |
+| 4 | 擰球 | backhand twist | Attack |
+| 5 | 快帶 | fast drive | Attack |
+| 6 | 推擠 | fast push | Attack |
+| 7 | 挑撥 | flip | Attack |
+| 8 | 拱球 | pimple’s long push | Control |
+| 9 | 磕球 | pimple’s fast push | Control |
+| 10 | 搓球 | long push | Control |
+| 11 | 擺短 | drop shot | Control |
+| 12 | 削球 | chop | Defensive |
+| 13 | 擋球 | block | Defensive |
+| 14 | 放高球 | lob | Defensive |
+| 15 | 傳統發球 | traditional | Serve |
+| 16 | 勾手發球 | hook | Serve |
+| 17 | 逆旋轉發球 | reverse | Serve |
+| 18 | 下蹲式發球 | squat | Serve |
+
+### positionId (球員站位)
+| ID | 說明 | Definition |
+| :--- | :--- | :--- |
+| 0 | 無 / 其他 | null |
+| 1 | 左 | left |
+| 2 | 中 | middle |
+| 3 | 右 | right |
