@@ -67,6 +67,8 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in ["actionId", "pointId", "spinId", "positionId", "handId", "strengthId", "strikeId"]:
         df[f"prev_{col}"] = grp[col].shift(1).fillna(-1).astype(int)
+        df[f"prev2_{col}"] = grp[col].shift(2).fillna(-1).astype(int)
+        df[f"prev3_{col}"] = grp[col].shift(3).fillna(-1).astype(int)
         df[f"next_{col}"] = grp[col].shift(-1)
 
     df["has_next"] = grp["strikeNumber"].shift(-1).notna()
@@ -103,6 +105,30 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
     df["hand_action_combo"] = df["handId"].astype(str) + "|" + df["actionId"].astype(str)
     df["action_bigram"] = df["prev_actionId"].astype(str) + "->" + df["actionId"].astype(str)
     df["spin_bigram"] = df["prev_spinId"].astype(str) + "->" + df["spinId"].astype(str)
+    df["action_trigram"] = (
+        df["prev2_actionId"].astype(str) + "->" + df["prev_actionId"].astype(str) + "->" + df["actionId"].astype(str)
+    )
+    df["spin_trigram"] = (
+        df["prev2_spinId"].astype(str) + "->" + df["prev_spinId"].astype(str) + "->" + df["spinId"].astype(str)
+    )
+    df["recent_action_signature"] = (
+        df["prev3_actionId"].astype(str)
+        + "|"
+        + df["prev2_actionId"].astype(str)
+        + "|"
+        + df["prev_actionId"].astype(str)
+        + "|"
+        + df["actionId"].astype(str)
+    )
+    df["recent_point_signature"] = (
+        df["prev3_pointId"].astype(str)
+        + "|"
+        + df["prev2_pointId"].astype(str)
+        + "|"
+        + df["prev_pointId"].astype(str)
+        + "|"
+        + df["pointId"].astype(str)
+    )
 
     df["action_changed"] = (df["actionId"] != df["prev_actionId"]).astype(int)
     df["point_changed"] = (df["pointId"] != df["prev_pointId"]).astype(int)
@@ -137,6 +163,28 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
         labels=["1", "2", "3", "4plus"],
         right=True,
     ).astype(str)
+
+    safe_denominator = df["strikeNumber"].clip(lower=1)
+    df["prefix_attack_ratio"] = df["prefix_attack_count"] / safe_denominator
+    df["prefix_control_ratio"] = df["prefix_control_count"] / safe_denominator
+    df["prefix_defense_ratio"] = df["prefix_defense_count"] / safe_denominator
+    df["prefix_serve_ratio"] = df["prefix_serve_count"] / safe_denominator
+    df["prefix_action_diversity"] = df["prefix_unique_action_count"] / safe_denominator
+
+    recent_same_action = (
+        (df["actionId"] == df["prev_actionId"]).astype(int)
+        + (df["actionId"] == df["prev2_actionId"]).astype(int)
+        + (df["actionId"] == df["prev3_actionId"]).astype(int)
+    )
+    recent_same_point = (
+        (df["pointId"] == df["prev_pointId"]).astype(int)
+        + (df["pointId"] == df["prev2_pointId"]).astype(int)
+        + (df["pointId"] == df["prev3_pointId"]).astype(int)
+    )
+    df["recent_same_action_hits"] = recent_same_action
+    df["recent_same_point_hits"] = recent_same_point
+    df["recent_action_repeat_flag"] = (recent_same_action > 0).astype(int)
+    df["recent_point_repeat_flag"] = (recent_same_point > 0).astype(int)
 
     return df
 
@@ -187,12 +235,26 @@ def feature_catalog(df: pd.DataFrame) -> pd.DataFrame:
         "action_point_combo",
         "hand_action_combo",
         "prev_actionId",
+        "prev2_actionId",
+        "prev3_actionId",
         "prev_pointId",
+        "prev2_pointId",
+        "prev3_pointId",
         "prev_spinId",
+        "prev2_spinId",
+        "prev3_spinId",
         "prev_positionId",
+        "prev2_positionId",
+        "prev3_positionId",
         "prev_handId",
+        "prev2_handId",
+        "prev3_handId",
         "prev_strengthId",
+        "prev2_strengthId",
+        "prev3_strengthId",
         "prev_strikeId",
+        "prev2_strikeId",
+        "prev3_strikeId",
         "action_changed",
         "point_changed",
         "spin_changed",
@@ -200,11 +262,24 @@ def feature_catalog(df: pd.DataFrame) -> pd.DataFrame:
         "hand_changed",
         "action_bigram",
         "spin_bigram",
+        "action_trigram",
+        "spin_trigram",
+        "recent_action_signature",
+        "recent_point_signature",
         "prefix_attack_count",
         "prefix_control_count",
         "prefix_defense_count",
         "prefix_serve_count",
         "prefix_unique_action_count",
+        "prefix_attack_ratio",
+        "prefix_control_ratio",
+        "prefix_defense_ratio",
+        "prefix_serve_ratio",
+        "prefix_action_diversity",
+        "recent_same_action_hits",
+        "recent_same_point_hits",
+        "recent_action_repeat_flag",
+        "recent_point_repeat_flag",
         "same_action_run_len",
         "same_action_run_bucket",
     }

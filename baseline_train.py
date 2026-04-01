@@ -123,6 +123,51 @@ def score_predictions(y_true: np.ndarray, y_prob: np.ndarray, metric: str, encod
     raise ValueError(f"Unsupported metric: {metric}")
 
 
+def hill_climb_ensemble(
+    y_true: np.ndarray,
+    metric_name: str,
+    encoding: TaskEncoding | None,
+    model_oof: dict[str, np.ndarray],
+    model_test: dict[str, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, list[dict[str, float]], float]:
+    model_names = list(model_oof.keys())
+    scored = []
+    for name in model_names:
+        score = score_predictions(y_true, model_oof[name], metric_name, encoding)
+        scored.append((name, score))
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    best_name, best_score = scored[0]
+    current_oof = model_oof[best_name].copy()
+    current_test = model_test[best_name].copy()
+    weights = {name: 0.0 for name in model_names}
+    weights[best_name] = 1.0
+
+    for candidate_name, _ in scored[1:]:
+        candidate_oof = model_oof[candidate_name]
+        candidate_test = model_test[candidate_name]
+        local_best_score = best_score
+        local_best_alpha = 0.0
+
+        for alpha in np.linspace(0.05, 0.95, 19):
+            blended_oof = (1.0 - alpha) * current_oof + alpha * candidate_oof
+            blended_score = score_predictions(y_true, blended_oof, metric_name, encoding)
+            if blended_score > local_best_score:
+                local_best_score = blended_score
+                local_best_alpha = float(alpha)
+
+        if local_best_alpha > 0:
+            current_oof = (1.0 - local_best_alpha) * current_oof + local_best_alpha * candidate_oof
+            current_test = (1.0 - local_best_alpha) * current_test + local_best_alpha * candidate_test
+            for existing_name in weights:
+                weights[existing_name] *= 1.0 - local_best_alpha
+            weights[candidate_name] += local_best_alpha
+            best_score = local_best_score
+
+    ordered_weights = [{"model": name, "weight": float(weight)} for name, weight in weights.items()]
+    return current_oof, current_test, ordered_weights, float(best_score)
+
+
 def get_model(
     model_name: str,
     task_name: str,
@@ -179,6 +224,8 @@ def get_model(
             "device_type": "gpu" if gpu else "cpu",
             "verbose": -1,
         }
+        if gpu:
+            params["max_bin"] = 255
         if not is_binary:
             params["num_class"] = n_classes
         return LGBMClassifier(**params), {"categorical_feature": categorical_feature_indices}
@@ -376,19 +423,33 @@ def train_task_oof(
     ensemble_score = score_predictions(y_true, ensemble_oof, metric_name, encoding)
     oof_rows.append({"task": task_name, "model": "ensemble_mean", "metric": metric_name, "oof_score": ensemble_score})
 
+    hill_oof, hill_test, hill_weights, hill_score = hill_climb_ensemble(
+        y_true=y_true,
+        metric_name=metric_name,
+        encoding=encoding,
+        model_oof=per_model_oof,
+        model_test=per_model_test,
+    )
+    oof_rows.append({"task": task_name, "model": "ensemble_hillclimb", "metric": metric_name, "oof_score": hill_score})
+
+    final_oof = hill_oof if hill_score >= ensemble_score else ensemble_oof
+    final_test = hill_test if hill_score >= ensemble_score else ensemble_test
+    final_name = "ensemble_hillclimb" if hill_score >= ensemble_score else "ensemble_mean"
+    final_score = hill_score if hill_score >= ensemble_score else ensemble_score
+
     class_cols = [f"class_{cls}" for cls in encoding.classes]
-    oof_df = pd.DataFrame(ensemble_oof, columns=class_cols)
+    oof_df = pd.DataFrame(final_oof, columns=class_cols)
     oof_df.insert(0, "rally_uid", train_df["rally_uid"].to_numpy())
     oof_df.insert(1, "target", y_true)
     oof_df.insert(2, "task", task_name)
     oof_df.to_parquet(out_dir / f"oof_{task_name}.parquet", index=False)
 
-    test_pred_df = pd.DataFrame(ensemble_test, columns=class_cols)
+    test_pred_df = pd.DataFrame(final_test, columns=class_cols)
     test_pred_df.insert(0, "rally_uid", test_df["rally_uid"].to_numpy())
     test_pred_df.insert(1, "task", task_name)
     test_pred_df.to_parquet(out_dir / f"test_pred_{task_name}.parquet", index=False)
 
-    pred_idx = ensemble_test.argmax(axis=1)
+    pred_idx = final_test.argmax(axis=1)
     pred_labels = decode_predictions(pred_idx, encoding)
 
     return {
@@ -398,8 +459,12 @@ def train_task_oof(
         "encoding": encoding,
         "fold_scores": fold_rows,
         "oof_scores": oof_rows,
-        "ensemble_score": ensemble_score,
-        "test_prob": ensemble_test,
+        "ensemble_score": final_score,
+        "ensemble_name": final_name,
+        "ensemble_weights": hill_weights,
+        "mean_ensemble_score": ensemble_score,
+        "hillclimb_score": hill_score,
+        "test_prob": final_test,
         "test_pred_labels": pred_labels,
     }
 
@@ -427,7 +492,8 @@ def _plot_bar(df: pd.DataFrame, x: str, y: str, title: str, path: Path, color: s
 
 def _plot_grouped_scores(oof_scores: pd.DataFrame, path: Path) -> None:
     tasks = oof_scores["task"].unique().tolist()
-    models = [m for m in oof_scores["model"].unique().tolist() if m != "ensemble_mean"] + ["ensemble_mean"]
+    preferred_tail = [m for m in ["ensemble_mean", "ensemble_hillclimb"] if m in oof_scores["model"].unique().tolist()]
+    models = [m for m in oof_scores["model"].unique().tolist() if m not in preferred_tail] + preferred_tail
     x = np.arange(len(tasks))
     width = 0.18
     plt.figure(figsize=(11, 5))
@@ -538,17 +604,25 @@ def generate_training_report(out_dir: Path) -> None:
 
     weak_action = action_class_f1.head(5)
     weak_point = point_class_f1.head(5)
+    def ensemble_row(task: str) -> pd.Series:
+        sub = oof_scores[oof_scores["task"] == task]
+        ensemble_sub = sub[sub["model"].str.startswith("ensemble_")].sort_values("oof_score", ascending=False)
+        return ensemble_sub.iloc[0]
+
+    action_ensemble = ensemble_row("action")
+    point_ensemble = ensemble_row("point")
+    server_ensemble = ensemble_row("server")
     action_gain = float(
-        oof_scores[(oof_scores["task"] == "action") & (oof_scores["model"] == "ensemble_mean")]["oof_score"].iloc[0]
-        - oof_scores[(oof_scores["task"] == "action") & (oof_scores["model"] != "ensemble_mean")]["oof_score"].max()
+        action_ensemble["oof_score"]
+        - oof_scores[(oof_scores["task"] == "action") & (~oof_scores["model"].str.startswith("ensemble_"))]["oof_score"].max()
     )
     point_gain = float(
-        oof_scores[(oof_scores["task"] == "point") & (oof_scores["model"] == "ensemble_mean")]["oof_score"].iloc[0]
-        - oof_scores[(oof_scores["task"] == "point") & (oof_scores["model"] != "ensemble_mean")]["oof_score"].max()
+        point_ensemble["oof_score"]
+        - oof_scores[(oof_scores["task"] == "point") & (~oof_scores["model"].str.startswith("ensemble_"))]["oof_score"].max()
     )
     server_gain = float(
-        oof_scores[(oof_scores["task"] == "server") & (oof_scores["model"] == "ensemble_mean")]["oof_score"].iloc[0]
-        - oof_scores[(oof_scores["task"] == "server") & (oof_scores["model"] != "ensemble_mean")]["oof_score"].max()
+        server_ensemble["oof_score"]
+        - oof_scores[(oof_scores["task"] == "server") & (~oof_scores["model"].str.startswith("ensemble_"))]["oof_score"].max()
     )
 
     def format_small_table(df: pd.DataFrame) -> str:
@@ -567,6 +641,7 @@ def generate_training_report(out_dir: Path) -> None:
 - Action Macro F1: `{summary["task_scores"]["action_macro_f1"]:.6f}`
 - Point Macro F1: `{summary["task_scores"]["point_macro_f1"]:.6f}`
 - Server AUC: `{server_auc:.6f}`
+- Final ensemble variants: `action={action_ensemble["model"]}`, `point={point_ensemble["model"]}`, `server={server_ensemble["model"]}`
 
 ## 圖表
 
@@ -708,6 +783,26 @@ def main() -> None:
             "action_macro_f1": results["action"]["ensemble_score"],
             "point_macro_f1": results["point"]["ensemble_score"],
             "server_auc": results["server"]["ensemble_score"],
+        },
+        "ensemble_details": {
+            "action": {
+                "final_name": results["action"]["ensemble_name"],
+                "mean_score": results["action"]["mean_ensemble_score"],
+                "hillclimb_score": results["action"]["hillclimb_score"],
+                "weights": results["action"]["ensemble_weights"],
+            },
+            "point": {
+                "final_name": results["point"]["ensemble_name"],
+                "mean_score": results["point"]["mean_ensemble_score"],
+                "hillclimb_score": results["point"]["hillclimb_score"],
+                "weights": results["point"]["ensemble_weights"],
+            },
+            "server": {
+                "final_name": results["server"]["ensemble_name"],
+                "mean_score": results["server"]["mean_ensemble_score"],
+                "hillclimb_score": results["server"]["hillclimb_score"],
+                "weights": results["server"]["ensemble_weights"],
+            },
         },
         "overall_score": overall_score,
     }
