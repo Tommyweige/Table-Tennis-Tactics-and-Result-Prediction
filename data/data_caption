@@ -28,15 +28,15 @@
 | **strikeNumber** | 小分內的揮拍次序 | Stroke number within the rally |
 | **scoreSelf** | 主視角選手的得分 | Points won by the main-view player |
 | **scoreOther** | 對側選手的得分 | Points won by the opponent player |
-| **serverGetPoint** | 發球者是否得分（1=是, 0=否） | Whether the server won the point |
+| **serverGetPoint** | 發球者是否得分（1=是, 0=否）  (目標值)| Whether the server won the point |
 | **gamePlayerId** | 主視角選手的 ID | ID of the main-view player |
 | **gamePlayerOtherId** | 對側視角選手的 ID | ID of the opponent player |
-| **strikeId** | **揮拍狀態或動作類型 (目標值)** | **Stroke action type or state identifier** |
+| **strikeId** | **揮拍狀態或動作類型** | **Stroke action type or state identifier** |
 | **handId** | 正手或反手揮拍 | Forehand or backhand stroke indicator |
 | **strengthId** | 擊球力道 | Stroke strength level |
 | **spinId** | 球的旋轉方式 | Type of spin applied to the ball |
-| **pointId** | 球的落點位置 | Landing position of the ball on the table |
-| **actionId** | 擊球方式 | Stroke or action type |
+| **pointId** | 球的落點位置 (目標值) | Landing position of the ball on the table |
+| **actionId** | 擊球方式 (目標值) | Stroke or action type |
 | **positionId** | 球員站位區域 | Player’s court position |
 
 ---
