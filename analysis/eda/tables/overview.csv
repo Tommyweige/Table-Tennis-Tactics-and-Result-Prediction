@@ -1,0 +1,11 @@
+﻿metric,value
+train_rows,84707.0
+test_rows,3589.0
+train_rallies,14995.0
+test_rallies,1236.0
+train_modelable_rallies_len_ge_2,14995.0
+train_full_len_mean,5.649016338779593
+train_full_len_median,5.0
+test_observed_len_mean,2.9037216828478964
+test_observed_len_median,2.0
+train_server_win_rate_rally_level,0.5499166388796265

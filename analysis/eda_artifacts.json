@@ -1,0 +1,25 @@
+{
+  "output_root": "D:\\Learning\\SelfLearning\\AI-CUP\\2026\\桌球序列\\analysis",
+  "plots": [
+    "01_rally_length_comparison.png",
+    "02_final_action_distribution.png",
+    "03_final_point_distribution.png",
+    "04_server_get_point_distribution.png",
+    "05_prev_to_next_action_heatmap.png",
+    "06_server_win_rate_by_prefix_len.png",
+    "07_train_test_context_shift.png",
+    "08_prefix_feature_target_association.png"
+  ],
+  "tables": [
+    "final_action_distribution.csv",
+    "final_point_distribution.csv",
+    "final_server_distribution.csv",
+    "length_summary.csv",
+    "overview.csv",
+    "prefix_feature_target_association.csv",
+    "rally_label_consistency.csv",
+    "server_win_rate_by_prefix_len.csv",
+    "top_prev_to_next_action_transitions.csv",
+    "train_test_context_shift.csv"
+  ]
+}

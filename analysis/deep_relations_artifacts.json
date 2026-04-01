@@ -1,0 +1,19 @@
+{
+  "rows_transition": 69712,
+  "tables": [
+    "candidate_best_target.csv",
+    "candidate_feature_shortlist.csv",
+    "candidate_feature_target_association.csv",
+    "field_profile.csv",
+    "raw_feature_pair_association.csv",
+    "raw_feature_target_association_transition.csv",
+    "top40_raw_feature_pair_association.csv",
+    "transition_target_distribution.csv"
+  ],
+  "plots": [
+    "01_raw_feature_target_heatmap.png",
+    "02_candidate_feature_target_heatmap.png",
+    "03_top_feature_pairs.png",
+    "04_transition_next_action_distribution.png"
+  ]
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>桌球序列 EDA Dashboard</title>
+  <style>
+    body { font-family: "Segoe UI", sans-serif; margin: 24px; background: #f7f7f9; color: #222; }
+    h1, h2 { margin-bottom: 8px; }
+    .note { background: #fff3cd; padding: 12px 16px; border-left: 4px solid #d39e00; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px; }
+    .card { background: white; border-radius: 10px; padding: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.07); }
+    img { width: 100%; border-radius: 8px; }
+    code { background: #efefef; padding: 1px 4px; border-radius: 4px; }
+    ul { line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <h1>桌球序列資料 EDA Dashboard</h1>
+  <div class="note">
+    本頁面對齊競賽提交邏輯：每個 <code>rally_uid</code> 以已觀測前綴序列預測下一拍 <code>actionId</code>、<code>pointId</code> 與 <code>serverGetPoint</code>。
+  </div>
+  <h2>重點提醒</h2>
+  <ul>
+    <li><code>readme.md</code> 的正式目標是 <code>actionId</code>、<code>pointId</code>、<code>serverGetPoint</code>。</li>
+    <li><code>data_caption.md</code> 對 <code>strikeId</code> 與 test label 的描述和提交格式不完全一致，建議以提交檔格式為準。</li>
+    <li>若把 train 直接當成「預測最後一拍」，<code>pointId</code> 幾乎全部會變成 <code>0</code>；這暗示 test 很可能是在較早時間點截斷 prefix。</li>
+    <li>驗證必須依 <code>rally_uid</code> 或 <code>match</code> 分組，避免同一 rally 洩漏。</li>
+  </ul>
+  <div class="grid">
+    <div class="card"><h2>序列長度</h2><img src="eda/plots/01_rally_length_comparison.png" alt="rally lengths"></div>
+    <div class="card"><h2>下一拍 actionId</h2><img src="eda/plots/02_final_action_distribution.png" alt="final action"></div>
+    <div class="card"><h2>下一拍 pointId</h2><img src="eda/plots/03_final_point_distribution.png" alt="final point"></div>
+    <div class="card"><h2>Rally 結果</h2><img src="eda/plots/04_server_get_point_distribution.png" alt="server win"></div>
+    <div class="card"><h2>前一拍 -> 下一拍</h2><img src="eda/plots/05_prev_to_next_action_heatmap.png" alt="transition heatmap"></div>
+    <div class="card"><h2>勝率與前綴長度</h2><img src="eda/plots/06_server_win_rate_by_prefix_len.png" alt="server by prefix"></div>
+    <div class="card"><h2>Train/Test 位移</h2><img src="eda/plots/07_train_test_context_shift.png" alt="shift"></div>
+    <div class="card"><h2>關聯度排名</h2><img src="eda/plots/08_prefix_feature_target_association.png" alt="association"></div>
+  </div>
+</body>
+</html>
