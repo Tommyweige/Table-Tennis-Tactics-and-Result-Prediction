@@ -1,0 +1,13 @@
+---
+description: Preserve visible terminals during agent work
+alwaysApply: true
+---
+
+# Terminal Persistence
+
+- Prefer reusing an existing visible terminal instead of spawning disposable runs when practical.
+- Do not intentionally kill or replace a user-visible terminal unless the user explicitly asks.
+- For long-running jobs, prefer a terminal workflow that can remain visible after the agent turn ends.
+- Before starting a new training or server process, explain whether it will stay attached or run in a managed background session.
+- If a managed background session is required, tell the user it may not remain as a visible IDE terminal and offer a persistent alternative.
+- When the user wants a persistent page-visible terminal, prefer preparing the command/script and asking to run it in the existing terminal, or reuse the user's current terminal when safe.
