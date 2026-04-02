@@ -56,6 +56,32 @@ ACTION_GROUP = {
     18: "Serve",
 }
 
+POINT_DEPTH_GROUP = {
+    0: "zero",
+    1: "short",
+    2: "short",
+    3: "short",
+    4: "half_long",
+    5: "half_long",
+    6: "half_long",
+    7: "long",
+    8: "long",
+    9: "long",
+}
+
+POINT_SIDE_GROUP = {
+    0: "zero",
+    1: "forehand",
+    2: "middle",
+    3: "backhand",
+    4: "forehand",
+    5: "middle",
+    6: "backhand",
+    7: "forehand",
+    8: "middle",
+    9: "backhand",
+}
+
 
 def load_frame(path: Path) -> pd.DataFrame:
     return pd.read_csv(path).sort_values(["rally_uid", "strikeNumber"]).reset_index(drop=True)
@@ -100,16 +126,44 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
     ).astype(str)
     df["action_group"] = df["actionId"].map(ACTION_GROUP).fillna("Unknown")
 
+    for base_col in ["pointId", "prev_pointId", "prev2_pointId", "prev3_pointId"]:
+        prefix = base_col.replace("pointId", "point")
+        df[f"{prefix}_depth"] = df[base_col].map(POINT_DEPTH_GROUP).fillna("unknown")
+        df[f"{prefix}_side"] = df[base_col].map(POINT_SIDE_GROUP).fillna("unknown")
+        df[f"{prefix}_zone"] = df[f"{prefix}_side"] + "_" + df[f"{prefix}_depth"]
+
     df["action_spin_combo"] = df["actionId"].astype(str) + "|" + df["spinId"].astype(str)
     df["action_point_combo"] = df["actionId"].astype(str) + "|" + df["pointId"].astype(str)
     df["hand_action_combo"] = df["handId"].astype(str) + "|" + df["actionId"].astype(str)
+    df["point_spin_combo"] = df["pointId"].astype(str) + "|" + df["spinId"].astype(str)
+    df["point_position_combo"] = df["pointId"].astype(str) + "|" + df["positionId"].astype(str)
+    df["point_depth_action_combo"] = df["point_depth"] + "|" + df["actionId"].astype(str)
+    df["point_zone_action_combo"] = df["point_zone"] + "|" + df["actionId"].astype(str)
+    df["point_zone_spin_combo"] = df["point_zone"] + "|" + df["spinId"].astype(str)
+    df["stage_point_combo"] = df["stage_bucket"] + "|" + df["point_zone"]
+    df["pressure_point_combo"] = (
+        df["lead_state"].astype(str)
+        + "|"
+        + df["is_deuce_like"].astype(str)
+        + "|"
+        + df["is_close_score"].astype(str)
+        + "|"
+        + df["point_zone"]
+    )
     df["action_bigram"] = df["prev_actionId"].astype(str) + "->" + df["actionId"].astype(str)
     df["spin_bigram"] = df["prev_spinId"].astype(str) + "->" + df["spinId"].astype(str)
+    df["point_bigram"] = df["prev_pointId"].astype(str) + "->" + df["pointId"].astype(str)
+    df["point_zone_bigram"] = df["prev_point_zone"] + "->" + df["point_zone"]
+    df["point_depth_bigram"] = df["prev_point_depth"] + "->" + df["point_depth"]
+    df["point_side_bigram"] = df["prev_point_side"] + "->" + df["point_side"]
     df["action_trigram"] = (
         df["prev2_actionId"].astype(str) + "->" + df["prev_actionId"].astype(str) + "->" + df["actionId"].astype(str)
     )
     df["spin_trigram"] = (
         df["prev2_spinId"].astype(str) + "->" + df["prev_spinId"].astype(str) + "->" + df["spinId"].astype(str)
+    )
+    df["point_trigram"] = (
+        df["prev2_pointId"].astype(str) + "->" + df["prev_pointId"].astype(str) + "->" + df["pointId"].astype(str)
     )
     df["recent_action_signature"] = (
         df["prev3_actionId"].astype(str)
@@ -135,6 +189,9 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
     df["spin_changed"] = (df["spinId"] != df["prev_spinId"]).astype(int)
     df["position_changed"] = (df["positionId"] != df["prev_positionId"]).astype(int)
     df["hand_changed"] = (df["handId"] != df["prev_handId"]).astype(int)
+    df["point_depth_changed"] = (df["point_depth"] != df["prev_point_depth"]).astype(int)
+    df["point_side_changed"] = (df["point_side"] != df["prev_point_side"]).astype(int)
+    df["point_zero_flag"] = df["pointId"].eq(0).astype(int)
 
     action_group = df["action_group"]
     df["prefix_attack_count"] = action_group.eq("Attack").groupby(df["rally_uid"]).cumsum()
@@ -144,21 +201,41 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
     df["prefix_unique_action_count"] = (
         df.groupby("rally_uid")["actionId"].expanding().nunique().reset_index(level=0, drop=True)
     ).astype(int)
+    df["prefix_unique_point_count"] = (
+        df.groupby("rally_uid")["pointId"].expanding().nunique().reset_index(level=0, drop=True)
+    ).astype(int)
 
     same_action_run_len: list[int] = []
+    same_point_run_len: list[int] = []
     for _, group in df.groupby("rally_uid", sort=False):
-        prev_value = None
-        streak = 0
-        for value in group["actionId"]:
-            if value == prev_value:
-                streak += 1
+        prev_action_value = None
+        action_streak = 0
+        prev_point_value = None
+        point_streak = 0
+        for action_value, point_value in zip(group["actionId"], group["pointId"]):
+            if action_value == prev_action_value:
+                action_streak += 1
             else:
-                streak = 1
-                prev_value = value
-            same_action_run_len.append(streak)
+                action_streak = 1
+                prev_action_value = action_value
+            same_action_run_len.append(action_streak)
+
+            if point_value == prev_point_value:
+                point_streak += 1
+            else:
+                point_streak = 1
+                prev_point_value = point_value
+            same_point_run_len.append(point_streak)
     df["same_action_run_len"] = same_action_run_len
     df["same_action_run_bucket"] = pd.cut(
         df["same_action_run_len"],
+        bins=[0, 1, 2, 3, 100],
+        labels=["1", "2", "3", "4plus"],
+        right=True,
+    ).astype(str)
+    df["same_point_run_len"] = same_point_run_len
+    df["same_point_run_bucket"] = pd.cut(
+        df["same_point_run_len"],
         bins=[0, 1, 2, 3, 100],
         labels=["1", "2", "3", "4plus"],
         right=True,
@@ -170,6 +247,7 @@ def add_sequence_features(df: pd.DataFrame) -> pd.DataFrame:
     df["prefix_defense_ratio"] = df["prefix_defense_count"] / safe_denominator
     df["prefix_serve_ratio"] = df["prefix_serve_count"] / safe_denominator
     df["prefix_action_diversity"] = df["prefix_unique_action_count"] / safe_denominator
+    df["prefix_point_diversity"] = df["prefix_unique_point_count"] / safe_denominator
 
     recent_same_action = (
         (df["actionId"] == df["prev_actionId"]).astype(int)
@@ -234,6 +312,25 @@ def feature_catalog(df: pd.DataFrame) -> pd.DataFrame:
         "action_spin_combo",
         "action_point_combo",
         "hand_action_combo",
+        "point_depth",
+        "point_side",
+        "point_zone",
+        "prev_point_depth",
+        "prev_point_side",
+        "prev_point_zone",
+        "prev2_point_depth",
+        "prev2_point_side",
+        "prev2_point_zone",
+        "prev3_point_depth",
+        "prev3_point_side",
+        "prev3_point_zone",
+        "point_spin_combo",
+        "point_position_combo",
+        "point_depth_action_combo",
+        "point_zone_action_combo",
+        "point_zone_spin_combo",
+        "stage_point_combo",
+        "pressure_point_combo",
         "prev_actionId",
         "prev2_actionId",
         "prev3_actionId",
@@ -260,10 +357,18 @@ def feature_catalog(df: pd.DataFrame) -> pd.DataFrame:
         "spin_changed",
         "position_changed",
         "hand_changed",
+        "point_depth_changed",
+        "point_side_changed",
+        "point_zero_flag",
         "action_bigram",
         "spin_bigram",
+        "point_bigram",
+        "point_zone_bigram",
+        "point_depth_bigram",
+        "point_side_bigram",
         "action_trigram",
         "spin_trigram",
+        "point_trigram",
         "recent_action_signature",
         "recent_point_signature",
         "prefix_attack_count",
@@ -271,17 +376,21 @@ def feature_catalog(df: pd.DataFrame) -> pd.DataFrame:
         "prefix_defense_count",
         "prefix_serve_count",
         "prefix_unique_action_count",
+        "prefix_unique_point_count",
         "prefix_attack_ratio",
         "prefix_control_ratio",
         "prefix_defense_ratio",
         "prefix_serve_ratio",
         "prefix_action_diversity",
+        "prefix_point_diversity",
         "recent_same_action_hits",
         "recent_same_point_hits",
         "recent_action_repeat_flag",
         "recent_point_repeat_flag",
         "same_action_run_len",
         "same_action_run_bucket",
+        "same_point_run_len",
+        "same_point_run_bucket",
     }
 
     rows = []
