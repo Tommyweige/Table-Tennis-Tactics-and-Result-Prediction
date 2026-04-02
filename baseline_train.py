@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,14 @@ from xgboost import XGBClassifier
 
 from feature_builder import build_feature_sets
 
+try:
+    import cupy as cp
+
+    HAS_CUPY = True
+except Exception:
+    cp = None
+    HAS_CUPY = False
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -26,6 +35,7 @@ import matplotlib.pyplot as plt
 ROOT = Path(__file__).resolve().parent
 FEATURE_DIR = ROOT / "features"
 DEFAULT_OUTPUT_DIR = ROOT / "outputs" / "baseline_ensemble_oof"
+HOST_TRANSFER_ALERTS_SEEN: set[str] = set()
 
 TASKS = {
     "action": {
@@ -79,6 +89,40 @@ def load_frames(train_path: Path, test_path: Path, feature_cols: list[str], grou
     train = train[sorted(set(needed_train_cols), key=needed_train_cols.index)].copy()
     test = test[sorted(set(needed_test_cols), key=needed_test_cols.index)].copy()
     return train, test
+
+
+def to_xgb_device_matrix(x: pd.DataFrame | np.ndarray) -> pd.DataFrame | np.ndarray:
+    if not HAS_CUPY:
+        return x
+    if isinstance(x, pd.DataFrame):
+        arr = x.to_numpy(dtype=np.float32, copy=False)
+    else:
+        arr = np.asarray(x, dtype=np.float32)
+    return cp.asarray(arr)
+
+
+def to_xgb_device_vector(x: np.ndarray) -> np.ndarray:
+    if not HAS_CUPY:
+        return x
+    return cp.asarray(np.asarray(x, dtype=np.float32))
+
+
+def to_host_numpy(x: Any, context: str = "") -> np.ndarray:
+    if HAS_CUPY and isinstance(x, cp.ndarray):
+        alert_key = context or "unknown_context"
+        if alert_key not in HOST_TRANSFER_ALERTS_SEEN:
+            message = f"[ALERT] CuPy -> host transfer triggered at {alert_key}"
+            print(message)
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
+            HOST_TRANSFER_ALERTS_SEEN.add(alert_key)
+        return cp.asnumpy(x)
+    return np.asarray(x)
+
+
+def cleanup_gpu_memory() -> None:
+    if HAS_CUPY:
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
 
 
 def build_encoded_matrices(train: pd.DataFrame, test: pd.DataFrame, feature_cols: list[str]) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
@@ -362,6 +406,15 @@ def train_task_oof(
             x_va = x_train_num.iloc[va_idx].copy()
             x_te = x_test_num.copy()
             y_tr_model, fold_class_indices = build_fold_target(y_tr_global, task_name, model_name)
+            x_tr_input = x_tr
+            x_va_input = x_va
+            x_te_input = x_te
+            sample_weight_input = sample_weight
+            if model_name == "xgboost" and HAS_CUPY:
+                x_tr_input = to_xgb_device_matrix(x_tr)
+                x_va_input = to_xgb_device_matrix(x_va)
+                x_te_input = to_xgb_device_matrix(x_te)
+                sample_weight_input = to_xgb_device_vector(sample_weight)
 
             model, device_used = fit_with_gpu_fallback(
                 model_name=model_name,
@@ -369,13 +422,19 @@ def train_task_oof(
                 n_classes=n_classes,
                 categorical_feature_indices=categorical_feature_indices,
                 random_state=random_state + fold,
-                x_tr=x_tr,
+                x_tr=x_tr_input,
                 y_tr=y_tr_model,
-                sample_weight=sample_weight,
+                sample_weight=sample_weight_input,
             )
 
-            raw_val_prob = model.predict_proba(x_va)
-            raw_test_prob = model.predict_proba(x_te)
+            raw_val_prob = to_host_numpy(
+                model.predict_proba(x_va_input),
+                context=f"baseline:{task_name}:{model_name}:valid_predict",
+            )
+            raw_test_prob = to_host_numpy(
+                model.predict_proba(x_te_input),
+                context=f"baseline:{task_name}:{model_name}:test_predict",
+            )
             if model_name == "xgboost" and task_name != "server":
                 val_prob = align_fold_probabilities(raw_val_prob, n_classes, fold_class_indices)
                 test_prob = align_fold_probabilities(raw_test_prob, n_classes, fold_class_indices)
@@ -384,6 +443,8 @@ def train_task_oof(
                 test_prob = align_probabilities(model, raw_test_prob, n_classes)
             per_model_oof[model_name][va_idx] = val_prob
             per_model_test[model_name] += test_prob / n_splits
+            if model_name == "xgboost":
+                cleanup_gpu_memory()
 
             score = score_predictions(y_va, val_prob, metric_name, encoding)
             fold_rows.append(
