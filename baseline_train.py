@@ -36,6 +36,38 @@ ROOT = Path(__file__).resolve().parent
 FEATURE_DIR = ROOT / "features"
 DEFAULT_OUTPUT_DIR = ROOT / "outputs" / "baseline_ensemble_oof"
 HOST_TRANSFER_ALERTS_SEEN: set[str] = set()
+TUNED_MODEL_PARAMS: dict[tuple[str, str], dict[str, Any]] = {
+    ("xgboost", "action"): {
+        "n_estimators": 900,
+        "learning_rate": 0.016546530539243053,
+        "max_depth": 11,
+        "min_child_weight": 1.206472203881387,
+        "subsample": 0.780616080862735,
+        "colsample_bytree": 0.8249698646479678,
+        "gamma": 0.15668313035601944,
+        "reg_alpha": 0.00014661789770264476,
+        "reg_lambda": 5.829419987076837,
+    },
+    ("xgboost", "point"): {
+        "n_estimators": 900,
+        "learning_rate": 0.017710774829787043,
+        "max_depth": 11,
+        "min_child_weight": 1.4234469023494076,
+        "subsample": 0.8258731088233033,
+        "colsample_bytree": 0.9249900630338249,
+        "gamma": 0.9719732953644827,
+        "reg_alpha": 0.018325226972223232,
+        "reg_lambda": 0.08831461006140731,
+    },
+    ("catboost", "server"): {
+        "iterations": 500,
+        "learning_rate": 0.010610758233386742,
+        "depth": 6,
+        "l2_leaf_reg": 27.211051835081495,
+        "random_strength": 0.04474279965639416,
+        "bagging_temperature": 2.9169335779044294,
+    },
+}
 
 TASKS = {
     "action": {
@@ -221,6 +253,7 @@ def get_model(
     gpu: bool = True,
 ) -> Any:
     is_binary = task_name == "server"
+    tuned_params = TUNED_MODEL_PARAMS.get((model_name, task_name), {})
     if model_name == "catboost":
         params: dict[str, Any] = {
             "random_seed": random_state,
@@ -237,6 +270,7 @@ def get_model(
             params["devices"] = "0"
         else:
             params["task_type"] = "CPU"
+        params.update(tuned_params)
         return CatBoostClassifier(**params), {}
 
     if model_name == "xgboost":
@@ -252,6 +286,7 @@ def get_model(
             "objective": "binary:logistic" if is_binary else "multi:softprob",
             "eval_metric": "auc" if is_binary else "mlogloss",
         }
+        params.update(tuned_params)
         if not is_binary:
             params["num_class"] = n_classes
         return XGBClassifier(**params), {}
